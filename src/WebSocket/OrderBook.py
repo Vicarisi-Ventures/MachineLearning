@@ -1,7 +1,10 @@
-import datetime
 import mango
+import time
 
-def getOrderBookWebSocket():
+from Mongo.Mongo import appendMongo
+from WebSocket.OrderBookObj import OrderBook
+
+def getOrderBookWebSocket(pair_name, mongo_client):
     """
     Input:
     1. Currency Pair
@@ -9,15 +12,16 @@ def getOrderBookWebSocket():
     Streams OrderBook via WebSocket Connection
     """
 
-    with mango.ContextBuilder.build(cluster_name="devnet") as context:
+    context = mango.ContextBuilder.build(cluster_name="devnet")
+    market = mango.market(context, pair_name)
+    subscription = market.on_orderbook_change(context, lambda ob: appendMongo(ob, mongo_client, pair_name))
 
-        market = mango.market(context, "SOL-PERP")
-        subscription = market.on_orderbook_change(context, lambda ob: print("\n", datetime.datetime.now(), "\n", ob))
-        subscription.dispose()
+    time.sleep(5)
+    subscription.dispose()
 
     return 0
 
-def getOrderBookSnapShot():
+def getOrderBookSnapShot(pair_name):
     """
     Input:
     1. Currency Pair
@@ -25,8 +29,23 @@ def getOrderBookSnapShot():
     Returns OrderBook via API Connection
     """
 
-    with mango.ContextBuilder.build(cluster_name="devnet") as context:
-        market = mango.market(context, "SOL-PERP")
-        print(market.fetch_orderbook(context))
+    context = mango.ContextBuilder.build(cluster_name="devnet")
+    market = mango.market(context, pair_name)
+    orderbook = market.fetch_orderbook(context)
+    bids = orderbook.bids
 
-    return 0 
+    # Return This
+    OB = OrderBook(4)
+
+    for bid in bids:
+        print("Bid Price: ", bid.price)
+        print("Bid Size: ", bid.quantity)
+
+    asks = orderbook.asks
+
+    for ask in asks:
+        print("Ask Price: ", ask.price)
+        print("Ask Size: ", ask.quantity)
+
+    return OB
+
