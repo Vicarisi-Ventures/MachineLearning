@@ -27,7 +27,7 @@ class OrderBook:
     Contains OrderBook Variables
     """
 
-    def __init__(self, length):
+    def __init__(self, data, length, n_features):
 
         self.top_bid = 0
         self.top_bid_size = 0
@@ -41,6 +41,6 @@ class OrderBook:
 
         self.bid_sum_size = 0
         self.ask_sum_size = 0
-        self.imbalance = np.zeros(length)
-        self.orderbook_pressure = np.zeros(length)
-        self.weighted_midpoint = np.zeros(length)
+        self.imbalance = np.zeros((n_features, length))
+        self.orderbook_pressure = np.zeros((n_features, length))
+        self.weighted_midpoint = np.zeros((n_features, length))

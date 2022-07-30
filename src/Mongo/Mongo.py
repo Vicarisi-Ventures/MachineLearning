@@ -1,12 +1,14 @@
 import numpy as np
+from numba import jit 
+from multiprocessing.pool import ThreadPool
 
 from pymongo import MongoClient 
+from WebSocket.OrderBookObj import OrderBook
 from Features.OrderBookPressure import getOrderBookPressure
 from Features.WeightedMidpoint import getWeightedMidpoint
 from Models.StochasticGradientDescent import getStochasticGradientDescent
 from Models.RandomForestClassifier import getRandomForest
 from Models.SupportVectorMachine import getSupportVectorMachine
-import matplotlib.pyplot as plt 
 
 def getConnection(pair_name, clear_data):
     """
@@ -32,7 +34,6 @@ def getConnection(pair_name, clear_data):
 
         print("Error Connecting to MongoDB")
         return 0
-
 
     return client 
 
@@ -93,41 +94,110 @@ def fetchMongo(mongo_client, pair_name):
 
     db = mongo_client["MarketMaking"]
     coll = db[pair_name]
+    doc_count = coll.count_documents({})
 
-    data = coll.find({})
+    N = 10
+    temp_midpoint = list(coll.find({}, {"midpoint":1, "_id":0}))
+    temp_imbalance = list(coll.find({}, {"imbalance":1, "_id":0}))
+    temp_w_midpoint = list(coll.find({}, {"weighted_midpoint":1, "_id":0}))
+    temp_orderbook_pressure = list(coll.find({}, {"orderbook_pressure":1, "_id":0}))
 
-    midpoint = []
-    weighted_midpoint = []
+    midpoint = np.zeros(doc_count)
+    imbalance = np.zeros((N, doc_count))
+    weighted_midpoint = np.zeros((N, doc_count))
+    orderbook_pressure = np.zeros((N, doc_count))
 
-    imbalance = []
-    orderbook_pressure = []
+    iterate_data(
+        temp_midpoint, 
+        temp_imbalance, 
+        temp_w_midpoint, 
+        temp_orderbook_pressure, 
+        doc_count, 
+        midpoint, 
+        weighted_midpoint, 
+        imbalance, 
+        orderbook_pressure
+        )
 
-    for d in data: 
+    imbalance_vector = np.zeros(doc_count * 10)
+    get_imbalance_vector(doc_count, imbalance, midpoint, imbalance_vector)
 
-        midpoint.append(d["midpoint"])
-        weighted_midpoint.append(d["weighted_midpoint"])
+    orderbook_pressure_vector = np.zeros(doc_count * 10)
+    get_pressure_vector(doc_count, orderbook_pressure, midpoint, orderbook_pressure_vector)
 
-        imbalance.append(d["imbalance"][0])
-        orderbook_pressure.append(d["orderbook_pressure"][0])
+    # Run Models in Parallel
+    print("Initializing Threads")
+    pool = ThreadPool(processes = 6)
+    t1 = pool.apply_async(getSupportVectorMachine, (imbalance, imbalance_vector))
+    t2 = pool.apply_async(getRandomForest, (imbalance, imbalance_vector))
+    t3 = pool.apply_async(getStochasticGradientDescent, (imbalance, imbalance_vector))
+    t4 = pool.apply_async(getSupportVectorMachine, (orderbook_pressure, orderbook_pressure_vector))
+    t5 = pool.apply_async(getRandomForest, (orderbook_pressure, orderbook_pressure_vector))
+    t6 = pool.apply_async(getStochasticGradientDescent, (orderbook_pressure, orderbook_pressure_vector))
+    pool.close()
 
-    l = len(midpoint)
-    vector = np.zeros(l)
+    try: 
+        pool.join()
+        imbalance_svm = t1.get()
+        imbalance_rf = t2.get()
+        imbalance_sgd = t3.get()
+        pressure_svm = t4.get()
+        pressure_rf = t5.get()
+        pressure_sgd = t6.get()
 
-    for i in range(l - 1):
+    except: 
+        print("Threads Failed")
 
-        if imbalance[i] > 0.50 and midpoint[i + 1] > midpoint[i]:
-            vector[i] = 1
+    return imbalance_svm, imbalance_rf, imbalance_sgd, pressure_svm, pressure_rf, pressure_sgd
 
-        if imbalance[i] < 0.50 and midpoint[i + 1] < midpoint[i]:
-            vector[i] = 1 
+# @jit(nopython = True, parallel = True)
+def iterate_data(temp_midpoint, temp_imbalance, temp_w_midpoint, temp_orderbook_pressure, doc_count, midpoint, weighted_midpoint, imbalance, orderbook_pressure):
+    """
+    Parses Data Quickly with Numba 
+    """
 
-    # Support Vector Machine
-    svm = getSupportVectorMachine(imbalance, vector)
+    N = 10
 
-    # Random Forest Classifier
-    rf = getRandomForest(imbalance, vector)
+    for i in range(doc_count):
+        midpoint[i] = temp_midpoint[i]["midpoint"]
 
-    # Stochastic Gradient Descent
-    sgd = getStochasticGradientDescent(imbalance, vector)
+        for j in range(N):
+            imbalance[j][i] = temp_imbalance[i]["imbalance"][j]
+            weighted_midpoint[j][i] = temp_w_midpoint[i]["weighted_midpoint"][j]
+            orderbook_pressure[j][i] = temp_orderbook_pressure[i]["orderbook_pressure"][j]
 
-    return svm, rf, sgd
+    return 0
+
+# @jit(nopython = True, parallel = True)
+def get_imbalance_vector(doc_count, imbalance, midpoint, vector):
+    """
+    Parses Data Quickly with Numba
+    """
+
+    N = 10
+
+    for i in range(doc_count - 1):
+
+        for j in range(N):
+            if imbalance[j][i] > 0.50 and midpoint[i + 1] > midpoint[i]:
+                vector[i] = 1
+
+            if imbalance[j][i] < 0.50 and midpoint[i + 1] < midpoint[i]:
+                vector[i] = 1 
+
+    return 0
+
+def get_pressure_vector(doc_count, orderbook_pressure, midpoint, vector):
+
+    N = 10
+
+    for i in range(doc_count - 1):
+
+        for j in range(N):
+            if orderbook_pressure[j][i] > 0.50 and midpoint[i + 1] > midpoint[i]:
+                vector[i] = 1
+
+            if orderbook_pressure[j][i] < 0.50 and midpoint[i + 1] < midpoint[i]:
+                vector[i] = 1 
+
+    return 0
