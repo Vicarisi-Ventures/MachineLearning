@@ -7,6 +7,6 @@ def getRandomForest(X, y,):
     """
 
     model = RandomForestClassifier(max_depth=2, random_state=0)
-    model.fit(np.array(X).reshape(-1, 1), y)
+    model.fit(X, y)
 
     return model 

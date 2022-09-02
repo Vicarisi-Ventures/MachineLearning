@@ -7,6 +7,6 @@ def getStochasticGradientDescent(X, y):
     """
 
     model = SGDClassifier(loss="hinge", penalty="l2", max_iter=1000)
-    model.fit(np.array(X).reshape(-1, 1), y)
+    model.fit(X, y)
 
     return model

@@ -1,5 +1,6 @@
 import mango
 import time
+import datetime
 import numpy as np
 
 from Mongo.Mongo import appendMongo
@@ -15,6 +16,7 @@ def getOrderBookWebSocket(pair_name, mongo_client, n_minutes):
     Streams OrderBook via WebSocket Connection
     """
 
+    print("Streaming OrderBook Data")
     context = mango.ContextBuilder.build(cluster_name="mainnet")
     market = mango.market(context, pair_name)
     subscription = market.on_orderbook_change(context, lambda ob: appendMongo(ob, mongo_client, pair_name))
